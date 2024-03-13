@@ -306,9 +306,12 @@ memory_sub_partition::memory_sub_partition( unsigned sub_partition_id,
     snprintf(L2c_name, 32, "L2_bank_%03d", m_id);
     m_L2interface = new L2interface(this);
     m_mf_allocator = new partition_mf_allocator(config);
-
-    if(!m_config->m_L2_config.disabled())
-       m_L2cache = new l2_cache(L2c_name,m_config->m_L2_config,-1,-1,m_L2interface,m_mf_allocator,IN_PARTITION_L2_MISS_QUEUE);
+    //mirage-edit
+    if(!m_config->m_L2_config.disabled()) {
+        m_config->m_L2_config.m_nset/=2;
+        m_L2cache = new l2_cache(L2c_name,m_config->m_L2_config,-1,-1,m_L2interface,m_mf_allocator,IN_PARTITION_L2_MISS_QUEUE);
+    }
+       
 
     unsigned int icnt_L2;
     unsigned int L2_dram;

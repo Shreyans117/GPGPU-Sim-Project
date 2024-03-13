@@ -28,6 +28,8 @@
 #include "gpu-cache.h"
 #include "stat-tool.h"
 #include <assert.h>
+//mirage-edit
+#include <random>
 
 #define MAX_DEFAULT_CACHE_SIZE_MULTIBLIER 4
 // used to allocate memory that is large enough to adapt the changes in cache size across kernels
@@ -154,7 +156,21 @@ void tag_array::init( int core_id, int type_id )
     m_core_id = core_id; 
     m_type_id = type_id;
 }
-
+//mirage-edit
+enum cache_request_status tag_array::probe( new_addr_type addr, unsigned &idx, stack<int> &free_tags_stack) const {
+    enum cache_request_status response = probe(addr, idx);
+    if(!free_tags_stack.empty()){
+        idx = free_tags_stack.pop();
+    } else {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        int min = 0, max = m_config.get_num_lines()-1;
+        std::uniform_int_distribution<> distrib(min, max);
+        idx = distrib(gen);
+    }
+    return response;
+    
+}
 enum cache_request_status tag_array::probe( new_addr_type addr, unsigned &idx ) const {
     //assert( m_config.m_write_policy == READ_ONLY );
     unsigned set_index = m_config.set_index(addr);
@@ -201,7 +217,7 @@ enum cache_request_status tag_array::probe( new_addr_type addr, unsigned &idx ) 
                         valid_line = index;
                     }
                 }
-            }
+            } 
         }
     }
     if ( all_reserved ) {
@@ -279,10 +295,15 @@ void tag_array::fill( unsigned index, unsigned time )
 
 void tag_array::flush() 
 {
-    for (unsigned i=0; i < m_config.get_num_lines(); i++)
+    for (unsigned i=0; i < m_config.get_num_lines(); i++) 
         m_lines[i].m_status = INVALID;
 }
-
+void tag_array::flush(stack<int> &free_tags_stack) 
+{
+    flush();
+    for (unsigned i=0; i < m_config.get_num_lines(); i++) 
+        free_tags_stack.push(i);
+}
 float tag_array::windowed_miss_rate( ) const
 {
     unsigned n_access    = m_access - m_prev_snapshot_access;
@@ -1074,8 +1095,13 @@ data_cache::access( new_addr_type addr,
     bool wr = mf->get_is_write();
     new_addr_type block_addr = m_config.block_addr(addr);
     unsigned cache_index = (unsigned)-1;
-    enum cache_request_status probe_status
-        = m_tag_array->probe( block_addr, cache_index );
+    //mirage-edit
+    if(!is_l2_cache)
+        enum cache_request_status probe_status
+            = m_tag_array->probe( block_addr, cache_index );
+    else
+        enum cache_request_status probe_status
+            = m_tag_array->probe( block_addr, cache_index, this->free_tags_stack);
     enum cache_request_status access_status
         = process_tag_probe( wr, probe_status, addr, cache_index, mf, time, events );
     m_stats.inc_stats(mf->get_access_type(),

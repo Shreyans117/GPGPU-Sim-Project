@@ -36,7 +36,8 @@
 #include "../tr1_hash_map.h"
 
 #include "addrdec.h"
-
+//mirage-edit
+#include <stack>
 enum cache_block_state {
     INVALID,
     RESERVED,
@@ -59,7 +60,15 @@ enum cache_event {
 };
 
 const char * cache_request_status_str(enum cache_request_status status); 
-
+//mirage-edit
+struct tag_block_t {
+    cache_block_t *fwd_ptr;
+    new_addr_type    m_tag;
+    unsigned         m_alloc_time;
+    unsigned         m_last_access_time;
+    unsigned         m_fill_time;
+    cache_block_state    m_status;
+};
 struct cache_block_t {
     cache_block_t()
     {
@@ -92,6 +101,9 @@ struct cache_block_t {
     unsigned         m_last_access_time;
     unsigned         m_fill_time;
     cache_block_state    m_status;
+
+    //mirage-edit
+    tag_block_t *reverse_ptr;
 };
 
 enum replacement_policy_t {
@@ -339,7 +351,7 @@ public:
     // Use this constructor
     tag_array(cache_config &config, int core_id, int type_id );
     ~tag_array();
-
+    enum cache_request_status probe( new_addr_type addr, unsigned &idx, stack<int> &free_tags_stack) const;
     enum cache_request_status probe( new_addr_type addr, unsigned &idx ) const;
     enum cache_request_status access( new_addr_type addr, unsigned time, unsigned &idx );
     enum cache_request_status access( new_addr_type addr, unsigned time, unsigned &idx, bool &wb, cache_block_t &evicted );
@@ -351,6 +363,8 @@ public:
     cache_block_t &get_block(unsigned idx) { return m_lines[idx];}
 
     void flush(); // flash invalidate all entries
+    //mirage-edit
+    void flush(stack<int> &free_tags_stack);
     void new_window();
 
     void print( FILE *stream, unsigned &total_access, unsigned &total_misses ) const;
@@ -386,6 +400,10 @@ protected:
 
     int m_core_id; // which shader core is using this
     int m_type_id; // what kind of cache is this (normal, texture, constant)
+
+    //mirage-edit
+    bool is_l2_cache = false;
+    stack<int> *free_tags_stack = nullptr;
 };
 
 class mshr_table {
@@ -630,6 +648,9 @@ protected:
     }
 
 protected:
+    //mirage-edit
+    bool is_l2_cache = false;
+    stack<int> *free_tags_stack = nullptr;
     std::string m_name;
     cache_config &m_config;
     tag_array*  m_tag_array;
@@ -957,10 +978,22 @@ protected:
 /// and write-allocate policies
 class l2_cache : public data_cache {
 public:
+    //mirage-edit : try two data_caches instead of two arrays
     l2_cache(const char *name,  cache_config &config,
             int core_id, int type_id, mem_fetch_interface *memport,
             mem_fetch_allocator *mfcreator, enum mem_fetch_status status )
-            : data_cache(name,config,core_id,type_id,memport,mfcreator,status, L2_WR_ALLOC_R, L2_WRBK_ACC){}
+            : data_cache(name,config,core_id,type_id,memport,mfcreator,status, L2_WR_ALLOC_R, L2_WRBK_ACC){
+                tag_array*  m_data_skew1 = new tag_array(config,core_id,type_id);
+                tag_array*  m_data_skew2 = new tag_array(config,core_id,type_id);
+                m_data_skew1->is_l2_cache = true;
+                m_data_skew2->is_l2_cache = true;
+                free_tags_stack = new std::stack<int>;
+                m_data_skew1->  = free_tags_stack;
+                m_data_skew2->free_tags_stack = free_tags_stack;
+                int extra_tags = 0.75*MAX_DEFAULT_CACHE_SIZE_MULTIBLIER*config.get_num_lines();
+                mirage_tag_skew1 = new tag_block_t[MAX_DEFAULT_CACHE_SIZE_MULTIBLIER*config.get_num_lines()+extra_tags];
+                mirage_tag_skew2 = new tag_block_t[MAX_DEFAULT_CACHE_SIZE_MULTIBLIER*config.get_num_lines()+extra_tags];
+            }
 
     virtual ~l2_cache() {}
 
@@ -969,6 +1002,13 @@ public:
                 mem_fetch *mf,
                 unsigned time,
                 std::list<cache_event> &events );
+//mirage-edit
+private:
+    stack<int> *free_tags_stack;
+    tag_block_t* mirage_tag_skew1;
+    tag_block_t* mirage_tag_skew2;
+    tag_array*  m_data_skew1;
+    tag_array*  m_data_skew2;
 };
 
 /*****************************************************************************/
